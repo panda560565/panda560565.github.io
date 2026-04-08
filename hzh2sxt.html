@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>画中画双摄像头</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            background: #0a0a0a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #fff;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* 主摄像头 - 全屏 */
+        .main-camera {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #000;
+        }
+
+        #main-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .main-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.4);
+            gap: 20px;
+        }
+
+        .main-placeholder-icon {
+            font-size: 5rem;
+            opacity: 0.5;
+        }
+
+        /* 悬浮小窗口 - 画中画 */
+        .pip-camera {
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            width: 120px;
+            height: 160px;
+            background: #1a1a1a;
+            border-radius: 16px;
+            overflow: hidden;
+            z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .pip-camera:hover {
+            transform: scale(1.05);
+            border-color: rgba(255,255,255,0.5);
+        }
+
+        .pip-camera.active {
+            width: 160px;
+            height: 213px;
+            bottom: 120px;
+        }
+
+        #pip-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+            transform: scaleX(-1); /* 前置摄像头镜像 */
+        }
+
+        .pip-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: rgba(255,255,255,0.3);
+        }
+
+        .pip-label {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            font-size: 10px;
+            background: rgba(0,0,0,0.6);
+            padding: 4px 8px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+
+        /* 控制栏 */
+        .controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            z-index: 20;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn-primary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn-swap {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-capture {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            padding: 0;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* 状态提示 */
+        .status {
+            position: fixed;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 25px;
+            font-size: 13px;
+            z-index: 30;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            max-width: 80%;
+        }
+
+        .status.error { background: rgba(231, 76, 60, 0.8); }
+        .status.success { background: rgba(46, 204, 113, 0.8); }
+        .status.warning { background: rgba(241, 196, 15, 0.8); color: #000; }
+
+        /* 点击悬浮窗交换 */
+        .pip-camera.clickable {
+            cursor: pointer;
+        }
+
+        /* 截图预览 */
+        .snapshot {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 90%;
+            max-height: 80%;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            z-index: 40;
+            display: none;
+        }
+
+        .snapshot-actions {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 41;
+            display: none;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 35;
+            display: none;
+        }
+
+        /* 模式指示器 */
+        .mode-indicator {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            padding: 8px 16px;
+            background: rgba(0,0,0,0.6);
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+    </style>
+</head>
+<body>
+    <!-- 主摄像头（后置） -->
+    <div class="main-camera">
+        <div class="main-placeholder" id="main-placeholder">
+            <span class="main-placeholder-icon">📷</span>
+            <span>点击开启摄像头</span>
+        </div>
+        <video id="main-video" autoplay playsinline muted></video>
+    </div>
+
+    <!-- 画中画摄像头（前置） -->
+    <div class="pip-camera" id="pip-container">
+        <div class="pip-label" id="pip-label">前置</div>
+        <div class="pip-placeholder" id="pip-placeholder">🤳</div>
+        <video id="pip-video" autoplay playsinline muted></video>
+    </div>
+
+    <!-- 模式指示 -->
+    <div class="mode-indicator" id="mode-indicator">画中画模式</div>
+
+    <!-- 状态提示 -->
+    <div class="status" id="status">准备就绪</div>
+
+    <!-- 控制栏 -->
+    <div class="controls">
+        <button class="btn-primary" id="startBtn" onclick="startCameras()">
+            ▶️ 开启
+        </button>
+        <button class="btn-swap" id="swapBtn" onclick="swapCameras()" disabled>
+            🔄 交换
+        </button>
+        <button class="btn-capture" id="captureBtn" onclick="capture()" disabled>
+            📸
+        </button>
+        <button class="btn-primary" id="pipBtn" onclick="togglePip()" disabled>
+            🖼️ 画中画
+        </button>
+        <button class="btn-primary" id="stopBtn" onclick="stopCameras()" disabled>
+            ⏹️ 停止
+        </button>
+    </div>
+
+    <!-- 截图预览 -->
+    <div class="overlay" id="overlay"></div>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <img class="snapshot" id="snapshot" alt="截图">
+    <div class="snapshot-actions" id="snapshot-actions">
+        <button class="btn-primary" onclick="downloadSnapshot()">⬇️ 保存</button>
+        <button class="btn-primary" onclick="closeSnapshot()">❌ 关闭</button>
+    </div>
+
+    <script>
+        const mainVideo = document.getElementById('main-video');
+        const pipVideo = document.getElementById('pip-video');
+        const mainPlaceholder = document.getElementById('main-placeholder');
+        const pipPlaceholder = document.getElementById('pip-placeholder');
+        const pipContainer = document.getElementById('pip-container');
+        const status = document.getElementById('status');
+        const modeIndicator = document.getElementById('mode-indicator');
+        
+        let mainStream = null;
+        let pipStream = null;
+        let isSwapped = false;
+        let isPipActive = true;
+        let currentMode = 'pip'; // 'pip' 或 'single'
+
+        // 获取设备信息
+        async function getCameras() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            return devices.filter(d => d.kind === 'videoinput');
+        }
+
+        async function startCameras() {
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = true;
+            status.textContent = '⏳ 正在启动摄像头...';
+            status.className = 'status';
+
+            try {
+                const cameras = await getCameras();
+                console.log('可用摄像头:', cameras.length, '个');
+
+                // 策略1: 尝试同时开启两个摄像头
+                try {
+                    // 开启后置作为主摄像头
+                    mainStream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: { exact: 'environment' },
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        },
+                        audio: false
+                    });
+
+                    // 尝试开启前置作为画中画
+                    // 使用不同的设备ID避免冲突
+                    const frontCamera = cameras.find(c => 
+                        c.label.toLowerCase().includes('front') || 
+                        c.label.toLowerCase().includes('user') ||
+                        c.label.toLowerCase().includes('前置')
+                    );
+
+                    if (frontCamera && frontCamera.deviceId !== mainStream.getVideoTracks()[0].getSettings().deviceId) {
+                        pipStream = await navigator.mediaDevices.getUserMedia({
+                            video: { 
+                                deviceId: { exact: frontCamera.deviceId },
+                                width: { ideal: 640 },
+                                height: { ideal: 480 }
+                            },
+                            audio: false
+                        });
+                    } else {
+                        // 尝试用 facingMode 再次获取
+                        pipStream = await navigator.mediaDevices.getUserMedia({
+                            video: { 
+                                facingMode: { exact: 'user' },
+                                width: { ideal: 640 }
+                            },
+                            audio: false
+                        });
+                    }
+
+                    currentMode = 'pip';
+                    modeIndicator.textContent = '画中画模式（双摄像头）';
+                    status.innerHTML = '✅ 双摄像头已开启<br><small>主画面：后置 | 小窗：前置</small>';
+                    status.className = 'status success';
+
+                } catch (dualErr) {
+                    console.log('双摄像头失败，切换到单摄像头模式:', dualErr.message);
+                    
+                    // 策略2: 降级到单摄像头，提供切换功能
+                    mainStream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 1920 }
+                        },
+                        audio: false
+                    });
+
+                    currentMode = 'single';
+                    pipContainer.style.display = 'none';
+                    modeIndicator.textContent = '单摄像头模式（点击交换切换前后）';
+                    status.innerHTML = '⚠️ 设备不支持同时开启双摄像头<br><small>已切换到单摄像头模式，使用"交换"按钮切换前后</small>';
+                    status.className = 'status warning';
+                }
+
+                // 设置视频源
+                mainVideo.srcObject = mainStream;
+                if (pipStream) {
+                    pipVideo.srcObject = pipStream;
+                    pipPlaceholder.style.display = 'none';
+                    pipVideo.style.display = 'block';
+                }
+
+                mainPlaceholder.style.display = 'none';
+                mainVideo.style.display = 'block';
+
+                // 更新按钮状态
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('captureBtn').disabled = false;
+                document.getElementById('swapBtn').disabled = false;
+                document.getElementById('pipBtn').disabled = currentMode !== 'pip';
+
+                // 点击悬浮窗可以交换（画中画模式下）
+                if (currentMode === 'pip') {
+                    pipContainer.classList.add('clickable');
+                    pipContainer.onclick = swapCameras;
+                }
+
+            } catch (err) {
+                status.innerHTML = '❌ 错误: ' + err.message + '<br><small>请确保已授予摄像头权限</small>';
+                status.className = 'status error';
+                startBtn.disabled = false;
+                console.error('启动失败:', err);
+            }
+        }
+
+        async function swapCameras() {
+            if (currentMode === 'single') {
+                // 单摄像头模式：切换前后
+                const currentTrack = mainStream.getVideoTracks()[0];
+                const currentFacing = currentTrack.getSettings().facingMode;
+                const newFacing = currentFacing === 'environment' ? 'user' : 'environment';
+                
+                try {
+                    const newStream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: { exact: newFacing },
+                            width: { ideal: 1920 }
+                        },
+                        audio: false
+                    });
+                    
+                    mainVideo.srcObject = newStream;
+                    currentTrack.stop();
+                    mainStream = newStream;
+                    
+                    // 如果是前置，添加镜像
+                    mainVideo.style.transform = newFacing === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+                    
+                    status.textContent = newFacing === 'environment' ? '已切换到后置摄像头' : '已切换到前置摄像头';
+                    setTimeout(() => status.className = 'status', 2000);
+                    
+                } catch (err) {
+                    status.textContent = '切换失败: ' + err.message;
+                    status.className = 'status error';
+                }
+            } else {
+                // 画中画模式：交换主副画面
+                isSwapped = !isSwapped;
+                
+                if (isSwapped) {
+                    mainVideo.srcObject = pipStream;
+                    pipVideo.srcObject = mainStream;
+                    document.getElementById('pip-label').textContent = '后置';
+                    status.innerHTML = '✅ 已交换<br><small>主画面：前置 | 小窗：后置</small>';
+                } else {
+                    mainVideo.srcObject = mainStream;
+                    pipVideo.srcObject = pipStream;
+                    document.getElementById('pip-label').textContent = '前置';
+                    status.innerHTML = '✅ 已交换<br><small>主画面：后置 | 小窗：前置</small>';
+                }
+                status.className = 'status success';
+            }
+        }
+
+        function togglePip() {
+            if (currentMode !== 'pip') return;
+            
+            isPipActive = !isPipActive;
+            pipContainer.style.display = isPipActive ? 'block' : 'none';
+            document.getElementById('pipBtn').textContent = isPipActive ? '🖼️ 隐藏小窗' : '🖼️ 显示小窗';
+        }
+
+        function capture() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 设置画布尺寸为主视频尺寸
+            canvas.width = mainVideo.videoWidth;
+            canvas.height = mainVideo.videoHeight;
+            
+            // 绘制主视频（考虑镜像）
+            ctx.save();
+            if (mainVideo.style.transform === 'scaleX(-1)') {
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+            }
+            ctx.drawImage(mainVideo, 0, 0);
+            ctx.restore();
+            
+            // 如果画中画开启，也绘制到小角落
+            if (isPipActive && pipStream && currentMode === 'pip') {
+                const pipWidth = canvas.width * 0.25;
+                const pipHeight = pipWidth * (pipVideo.videoHeight / pipVideo.videoWidth);
+                ctx.drawImage(pipVideo, canvas.width - pipWidth - 20, 20, pipWidth, pipHeight);
+                
+                // 添加边框
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(canvas.width - pipWidth - 20, 20, pipWidth, pipHeight);
+            }
+            
+            // 显示预览
+            const snapshot = document.getElementById('snapshot');
+            snapshot.src = canvas.toDataURL('image/png');
+            snapshot.style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('snapshot-actions').style.display = 'flex';
+        }
+
+        function downloadSnapshot() {
+            const canvas = document.getElementById('canvas');
+            const link = document.createElement('a');
+            link.download = `双摄像头拍照_${new Date().getTime()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function closeSnapshot() {
+            document.getElementById('snapshot').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('snapshot-actions').style.display = 'none';
+        }
+
+        function stopCameras() {
+            if (mainStream) {
+                mainStream.getTracks().forEach(track => track.stop());
+                mainStream = null;
+            }
+            if (pipStream) {
+                pipStream.getTracks().forEach(track => track.stop());
+                pipStream = null;
+            }
+
+            mainVideo.style.display = 'none';
+            pipVideo.style.display = 'none';
+            mainPlaceholder.style.display = 'flex';
+            pipPlaceholder.style.display = 'flex';
+            pipContainer.style.display = 'block';
+            pipContainer.classList.remove('clickable');
+            pipContainer.onclick = null;
+
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('captureBtn').disabled = true;
+            document.getElementById('swapBtn').disabled = true;
+            document.getElementById('pipBtn').disabled = true;
+            document.getElementById('pipBtn').textContent = '🖼️ 画中画';
+
+            status.textContent = '摄像头已停止';
+            status.className = 'status';
+            modeIndicator.textContent = '画中画模式';
+        }
+
+        // 清理
+        window.addEventListener('beforeunload', stopCameras);
+    </script>
+</body>
+</html>
