@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <title>悬浮摄像头</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #fff;
+            touch-action: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        #app {
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            height: -webkit-fill-available;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* 全屏引导层 */
+        .fullscreen-guide {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #1a1a2e 0%, #0a0a0a 100%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .fullscreen-guide.hidden {
+            display: none;
+        }
+
+        .guide-icon {
+            font-size: 5rem;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+
+        .guide-title {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .guide-text {
+            font-size: 16px;
+            line-height: 1.6;
+            color: rgba(255,255,255,0.8);
+            max-width: 300px;
+        }
+
+        .guide-btn {
+            padding: 18px 50px;
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            color: white;
+            border: none;
+            border-radius: 35px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 10px 30px rgba(0,206,201,0.3);
+            transition: transform 0.2s;
+        }
+
+        .guide-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 主视频层 - 全屏（悬浮窗隐藏时显示） */
+        .main-view {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #000;
+            display: none;
+        }
+
+        .main-view.active {
+            display: block;
+        }
+
+        #main-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* 悬浮窗 - 默认显示视频 */
+        .pip-view {
+            position: absolute;
+            width: 160px;
+            height: 213px;
+            background: #1a1a1a;
+            border-radius: 20px;
+            overflow: hidden;
+            z-index: 10;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            border: 3px solid rgba(255,255,255,0.4);
+            cursor: pointer;
+            user-select: none;
+            touch-action: none;
+            right: 20px;
+            top: 80px;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .pip-view:active {
+            transform: scale(0.95);
+            border-color: #00cec9;
+        }
+
+        .pip-view.dragging {
+            opacity: 0.8;
+            transition: none;
+            border-color: #00cec9;
+        }
+
+        .pip-view.hidden {
+            display: none;
+        }
+
+        #pip-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+        }
+
+        .pip-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            color: rgba(255,255,255,0.5);
+            pointer-events: none;
+        }
+
+        .pip-placeholder-icon {
+            font-size: 3rem;
+        }
+
+        .pip-placeholder-text {
+            font-size: 12px;
+        }
+
+        .pip-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 11px;
+            background: rgba(0,0,0,0.7);
+            padding: 6px 12px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            pointer-events: none;
+            font-weight: 600;
+        }
+
+        .pip-hint {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: rgba(255,255,255,0.6);
+            background: rgba(0,0,0,0.5);
+            padding: 4px 10px;
+            border-radius: 12px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        /* 状态提示 - 自动隐藏 */
+        .status-toast {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: rgba(0,0,0,0.85);
+            border-radius: 25px;
+            font-size: 14px;
+            z-index: 50;
+            backdrop-filter: blur(20px);
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            max-width: 80%;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .status-toast.show {
+            opacity: 1;
+        }
+
+        .status-toast.success { background: rgba(46, 204, 113, 0.9); color: #fff; }
+        .status-toast.error { background: rgba(231, 76, 60, 0.9); }
+        .status-toast.warning { background: rgba(241, 196, 15, 0.9); color: #000; }
+
+        /* 控制面板 - 可折叠 */
+        .controls-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 60%, transparent 100%);
+            z-index: 20;
+            transition: transform 0.3s ease;
+            padding: 20px 20px 40px;
+            padding-bottom: max(40px, env(safe-area-inset-bottom));
+        }
+
+        .controls-panel.hidden {
+            transform: translateY(calc(100% - 60px));
+        }
+
+        .panel-trigger {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%) translateY(-50%);
+            width: 60px;
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .panel-trigger:active {
+            background: rgba(255,255,255,0.6);
+            width: 80px;
+        }
+
+        .controls-content {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+
+        .controls-panel.hidden .controls-content {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            backdrop-filter: blur(10px);
+            white-space: nowrap;
+        }
+
+        button:active:not(:disabled) {
+            transform: scale(0.95);
+        }
+
+        .btn-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            padding: 0;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .btn-primary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .btn-active {
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            border-color: transparent;
+        }
+
+        .btn-capture {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            width: 65px;
+            height: 65px;
+            border-radius: 50%;
+            padding: 0;
+            justify-content: center;
+            font-size: 26px;
+            box-shadow: 0 5px 20px rgba(245, 87, 108, 0.4);
+        }
+
+        .btn-capture:active:not(:disabled) {
+            transform: scale(0.9);
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* 截图预览 */
+        .preview-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.98);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            padding-bottom: max(20px, env(safe-area-inset-bottom));
+        }
+
+        .preview-img {
+            max-width: 100%;
+            max-height: 75vh;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        .preview-actions {
+            display: flex;
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .preview-btn {
+            padding: 15px 35px;
+            border-radius: 30px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .btn-save {
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            color: white;
+        }
+
+        .btn-close {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        /* 加载动画 */
+        .loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 60;
+            display: none;
+        }
+
+        .loader-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #00cec9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 顶部栏 */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 15px 20px;
+            padding-top: max(15px, env(safe-area-inset-top));
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+            z-index: 15;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .app-title {
+            font-size: 16px;
+            font-weight: 600;
+            opacity: 0.9;
+        }
+
+        .battery-indicator {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        /* 背景占位 */
+        .bg-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.3);
+            gap: 20px;
+            z-index: 0;
+        }
+
+        .bg-icon {
+            font-size: 6rem;
+            opacity: 0.3;
+        }
+
+        .bg-text {
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 全屏引导层 -->
+        <div class="fullscreen-guide" id="fullscreenGuide" onclick="enterFullscreen()">
+            <div class="guide-icon">📷</div>
+            <div class="guide-title">悬浮摄像头</div>
+            <div class="guide-text">
+                视频默认显示在悬浮窗内<br>
+                点击悬浮窗可拖动位置<br>
+                隐藏悬浮窗后视频全屏显示
+            </div>
+            <button class="guide-btn" onclick="event.stopPropagation(); enterFullscreen();">点击进入全屏</button>
+        </div>
+
+        <!-- 背景占位（无视频时显示） -->
+        <div class="bg-placeholder" id="bgPlaceholder">
+            <div class="bg-icon">📷</div>
+            <div class="bg-text">点击底部横条展开控制面板</div>
+        </div>
+
+        <!-- 主视频层（悬浮窗隐藏时显示） -->
+        <div class="main-view" id="mainView">
+            <video id="mainVideo" autoplay playsinline muted></video>
+        </div>
+
+        <!-- 悬浮窗（默认显示视频） -->
+        <div class="pip-view" id="pipView">
+            <div class="pip-badge" id="pipBadge">摄像头</div>
+            <div class="pip-placeholder" id="pipPlaceholder">
+                <div class="pip-placeholder-icon">📷</div>
+                <div class="pip-placeholder-text">点击开启</div>
+            </div>
+            <video id="pipVideo" autoplay playsinline muted></video>
+            <div class="pip-hint">👆 拖动移动</div>
+        </div>
+
+        <!-- 状态提示 -->
+        <div class="status-toast" id="statusToast">准备就绪</div>
+
+        <!-- 加载动画 -->
+        <div class="loader" id="loader">
+            <div class="loader-spinner"></div>
+        </div>
+
+        <!-- 控制面板 -->
+        <div class="controls-panel" id="controlsPanel">
+            <div class="panel-trigger" onclick="togglePanel()"></div>
+            
+            <div class="controls-content">
+                <div class="control-row">
+                    <button class="btn-primary" id="startBtn" onclick="startCamera()">
+                        ▶️ 开启摄像头
+                    </button>
+                    <button class="btn-capture" id="captureBtn" onclick="capture()" disabled>
+                        ●
+                    </button>
+                    <button class="btn-primary btn-icon" id="pipToggleBtn" onclick="togglePip()" disabled>
+                        🖼️
+                    </button>
+                    <button class="btn-primary btn-icon" id="stopBtn" onclick="stopCamera()" disabled>
+                        ⏹
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 截图预览 -->
+        <div class="preview-overlay" id="previewOverlay">
+            <img class="preview-img" id="previewImg" alt="截图">
+            <div class="preview-actions">
+                <button class="preview-btn btn-save" onclick="savePhoto()">💾 保存</button>
+                <button class="preview-btn btn-close" onclick="closePreview()">✕ 关闭</button>
+            </div>
+        </div>
+
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+        // DOM 元素
+        const mainView = document.getElementById('mainView');
+        const mainVideo = document.getElementById('mainVideo');
+        const pipView = document.getElementById('pipView');
+        const pipVideo = document.getElementById('pipVideo');
+        const pipPlaceholder = document.getElementById('pipPlaceholder');
+        const pipBadge = document.getElementById('pipBadge');
+        const bgPlaceholder = document.getElementById('bgPlaceholder');
+        const statusToast = document.getElementById('statusToast');
+        const controlsPanel = document.getElementById('controlsPanel');
+        const fullscreenGuide = document.getElementById('fullscreenGuide');
+        const loader = document.getElementById('loader');
+
+        let stream = null;
+        let isRunning = false;
+        let isPipMode = true; // true: 悬浮窗显示, false: 全屏显示
+        let statusTimer = null;
+
+        // 初始化
+        window.onload = () => {
+            // 检查是否已全屏或已安装为PWA
+            if (window.matchMedia('(display-mode: standalone)').matches || 
+                window.navigator.standalone === true) {
+                fullscreenGuide.classList.add('hidden');
+            }
+        };
+
+        // 进入全屏
+        function enterFullscreen() {
+            const elem = document.documentElement;
+            
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen().catch(() => {});
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            }
+            
+            fullscreenGuide.classList.add('hidden');
+            
+            setTimeout(() => {
+                showStatus('👆 点击底部横条展开控制面板', 'success');
+            }, 500);
+        }
+
+        // 状态提示
+        function showStatus(message, type = '') {
+            clearTimeout(statusTimer);
+            statusToast.textContent = message;
+            statusToast.className = 'status-toast show ' + type;
+            
+            statusTimer = setTimeout(() => {
+                statusToast.classList.remove('show');
+            }, 2000);
+        }
+
+        // 控制面板折叠
+        function togglePanel() {
+            controlsPanel.classList.toggle('hidden');
+        }
+
+        // 拖动悬浮窗
+        let isDragging = false;
+        let dragStartX, dragStartY, dragInitialX, dragInitialY;
+
+        pipView.addEventListener('mousedown', startDrag);
+        pipView.addEventListener('touchstart', startDrag, { passive: false });
+
+        function startDrag(e) {
+            if (!isRunning) return;
+            
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            dragStartX = clientX;
+            dragStartY = clientY;
+            
+            const rect = pipView.getBoundingClientRect();
+            dragInitialX = rect.left;
+            dragInitialY = rect.top;
+            
+            isDragging = false;
+            
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('touchmove', onDrag, { passive: false });
+            document.addEventListener('mouseup', endDrag);
+            document.addEventListener('touchend', endDrag);
+        }
+
+        function onDrag(e) {
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            const dx = Math.abs(clientX - dragStartX);
+            const dy = Math.abs(clientY - dragStartY);
+            
+            if (dx > 5 || dy > 5) {
+                isDragging = true;
+                pipView.classList.add('dragging');
+            }
+            
+            if (isDragging) {
+                e.preventDefault();
+                const x = dragInitialX + (clientX - dragStartX);
+                const y = dragInitialY + (clientY - dragStartY);
+                
+                const maxX = window.innerWidth - pipView.offsetWidth;
+                const maxY = window.innerHeight - pipView.offsetHeight;
+                
+                pipView.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+                pipView.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+                pipView.style.right = 'auto';
+            }
+        }
+
+        function endDrag() {
+            pipView.classList.remove('dragging');
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('touchmove', onDrag);
+            document.removeEventListener('mouseup', endDrag);
+            document.removeEventListener('touchend', endDrag);
+            
+            setTimeout(() => {
+                isDragging = false;
+            }, 10);
+        }
+
+        // 启动摄像头
+        async function startCamera() {
+            document.getElementById('startBtn').disabled = true;
+            loader.style.display = 'block';
+            showStatus('正在启动摄像头...');
+
+            try {
+                // 默认使用后置摄像头
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: { exact: 'environment' },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    },
+                    audio: false
+                });
+
+                // 同时设置两个视频源
+                pipVideo.srcObject = stream;
+                mainVideo.srcObject = stream;
+
+                // 默认显示在悬浮窗
+                pipPlaceholder.style.display = 'none';
+                pipVideo.style.display = 'block';
+                pipBadge.textContent = '后置';
+                
+                bgPlaceholder.style.display = 'none';
+
+                isRunning = true;
+                isPipMode = true;
+                loader.style.display = 'none';
+
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('captureBtn').disabled = false;
+                document.getElementById('pipToggleBtn').disabled = false;
+
+                showStatus('摄像头已启动 - 悬浮窗模式', 'success');
+                
+                // 自动收起面板
+                setTimeout(() => {
+                    controlsPanel.classList.add('hidden');
+                }, 1500);
+
+            } catch (err) {
+                // 后置失败，尝试前置
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 1920 }
+                        },
+                        audio: false
+                    });
+
+                    pipVideo.srcObject = stream;
+                    mainVideo.srcObject = stream;
+
+                    pipPlaceholder.style.display = 'none';
+                    pipVideo.style.display = 'block';
+                    pipVideo.style.transform = 'scaleX(-1)'; // 前置镜像
+                    mainVideo.style.transform = 'scaleX(-1)';
+                    pipBadge.textContent = '前置';
+                    
+                    bgPlaceholder.style.display = 'none';
+
+                    isRunning = true;
+                    isPipMode = true;
+                    loader.style.display = 'none';
+
+                    document.getElementById('stopBtn').disabled = false;
+                    document.getElementById('captureBtn').disabled = false;
+                    document.getElementById('pipToggleBtn').disabled = false;
+
+                    showStatus('摄像头已启动(前置) - 悬浮窗模式', 'success');
+                    
+                    setTimeout(() => {
+                        controlsPanel.classList.add('hidden');
+                    }, 1500);
+
+                } catch (err2) {
+                    loader.style.display = 'none';
+                    showStatus('启动失败: ' + err2.message, 'error');
+                    document.getElementById('startBtn').disabled = false;
+                }
+            }
+        }
+
+        // 切换悬浮窗/全屏
+        function togglePip() {
+            if (!isRunning) return;
+            
+            isPipMode = !isPipMode;
+            
+            if (isPipMode) {
+                // 切换到悬浮窗模式
+                mainView.classList.remove('active');
+                pipView.classList.remove('hidden');
+                document.getElementById('pipToggleBtn').innerHTML = '🖼️';
+                showStatus('切换到悬浮窗模式');
+            } else {
+                // 切换到全屏模式
+                pipView.classList.add('hidden');
+                mainView.classList.add('active');
+                document.getElementById('pipToggleBtn').innerHTML = '🔲';
+                showStatus('切换到全屏模式');
+            }
+        }
+
+        // 拍照
+        function capture() {
+            if (!isRunning) return;
+
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 使用当前显示的视频
+            const activeVideo = isPipMode ? pipVideo : mainVideo;
+            
+            canvas.width = activeVideo.videoWidth;
+            canvas.height = activeVideo.videoHeight;
+            
+            ctx.save();
+            if (activeVideo.style.transform === 'scaleX(-1)') {
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+            }
+            ctx.drawImage(activeVideo, 0, 0);
+            ctx.restore();
+            
+            const previewImg = document.getElementById('previewImg');
+            previewImg.src = canvas.toDataURL('image/png');
+            document.getElementById('previewOverlay').style.display = 'flex';
+        }
+
+        function savePhoto() {
+            const canvas = document.getElementById('canvas');
+            const link = document.createElement('a');
+            link.download = `Photo_${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            showStatus('照片已保存', 'success');
+        }
+
+        function closePreview() {
+            document.getElementById('previewOverlay').style.display = 'none';
+        }
+
+        // 停止摄像头
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+                stream = null;
+            }
+
+            // 重置所有显示
+            pipVideo.style.display = 'none';
+            pipVideo.style.transform = 'scaleX(1)';
+            mainVideo.style.transform = 'scaleX(1)';
+            pipPlaceholder.style.display = 'flex';
+            pipBadge.textContent = '摄像头';
+            
+            mainView.classList.remove('active');
+            pipView.classList.remove('hidden');
+            bgPlaceholder.style.display = 'flex';
+            
+            // 重置位置
+            pipView.style.left = 'auto';
+            pipView.style.top = '80px';
+            pipView.style.right = '20px';
+            
+            isRunning = false;
+            isPipMode = true;
+
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('captureBtn').disabled = true;
+            document.getElementById('pipToggleBtn').disabled = true;
+            document.getElementById('pipToggleBtn').innerHTML = '🖼️';
+
+            showStatus('摄像头已停止');
+        }
+
+        // 清理
+        window.addEventListener('beforeunload', stopCamera);
+        
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') e.preventDefault();
+        });
+    </script>
+</body>
+</html>
