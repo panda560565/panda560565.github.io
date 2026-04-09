@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <title>悬浮摄像头</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #fff;
+            touch-action: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        #app {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+        }
+
+        /* 全屏引导层 */
+        .fullscreen-guide {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #0a0a0a 100%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .fullscreen-guide.hidden {
+            display: none !important;
+        }
+
+        .guide-icon {
+            font-size: 5rem;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+
+        .guide-title {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .guide-text {
+            font-size: 16px;
+            line-height: 1.6;
+            color: rgba(255,255,255,0.8);
+            max-width: 300px;
+        }
+
+        .guide-btn {
+            padding: 18px 50px;
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            color: white;
+            border: none;
+            border-radius: 35px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 10px 30px rgba(0,206,201,0.3);
+            transition: transform 0.2s;
+        }
+
+        .guide-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 背景占位 */
+        .bg-placeholder {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.3);
+            gap: 20px;
+            z-index: 0;
+        }
+
+        .bg-icon {
+            font-size: 6rem;
+            opacity: 0.3;
+        }
+
+        .bg-text {
+            font-size: 18px;
+        }
+
+        /* 主视频层（悬浮窗隐藏时全屏显示） */
+        .main-view {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #000;
+            display: none;
+        }
+
+        .main-view.active {
+            display: block;
+        }
+
+        #main-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* 网页内悬浮窗 */
+        .pip-view {
+            position: fixed;
+            width: 140px;
+            height: 186px;
+            background: #1a1a1a;
+            border-radius: 16px;
+            overflow: hidden;
+            z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.3);
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+            right: 20px;
+            top: 80px;
+        }
+
+        .pip-view:active {
+            cursor: grabbing;
+            transform: scale(1.02);
+            border-color: rgba(255,255,255,0.6);
+        }
+
+        .pip-view.dragging {
+            opacity: 0.8;
+            transition: none;
+        }
+
+        .pip-view.hidden {
+            display: none !important;
+        }
+
+        #pip-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+            pointer-events: none;
+        }
+
+        .pip-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            color: rgba(255,255,255,0.3);
+            pointer-events: none;
+        }
+
+        .pip-placeholder-icon {
+            font-size: 3rem;
+        }
+
+        .pip-placeholder-text {
+            font-size: 12px;
+        }
+
+        .pip-label {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            font-size: 11px;
+            background: rgba(0,0,0,0.7);
+            padding: 4px 10px;
+            border-radius: 12px;
+            backdrop-filter: blur(5px);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .pip-hint {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: rgba(255,255,255,0.5);
+            background: rgba(0,0,0,0.5);
+            padding: 2px 8px;
+            border-radius: 10px;
+            pointer-events: none;
+        }
+
+        /* 桌面悬浮窗（画中画模式） */
+        .desktop-pip {
+            position: fixed;
+            width: 300px;
+            height: 225px;
+            background: #1a1a1a;
+            border-radius: 12px;
+            overflow: hidden;
+            z-index: 100;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            border: 3px solid rgba(255,255,255,0.5);
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+
+        .desktop-pip.active {
+            display: block;
+        }
+
+        .desktop-pip:active {
+            cursor: grabbing;
+        }
+
+        .desktop-pip.dragging {
+            opacity: 0.9;
+        }
+
+        #desktop-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+        }
+
+        .desktop-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 32px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+            pointer-events: none;
+        }
+
+        .desktop-title {
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .desktop-close {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 状态提示 */
+        .status {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 25px;
+            font-size: 13px;
+            z-index: 50;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            max-width: 85%;
+            transition: all 0.3s;
+        }
+
+        .status.error { background: rgba(231, 76, 60, 0.9); }
+        .status.success { background: rgba(46, 204, 113, 0.9); }
+        .status.warning { background: rgba(241, 196, 15, 0.9); color: #000; }
+
+        /* 可隐藏控制面板 */
+        .controls-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 60%, transparent 100%);
+            z-index: 20;
+            transition: transform 0.3s ease;
+            padding: 20px 15px 30px;
+            padding-bottom: max(30px, env(safe-area-inset-bottom));
+        }
+
+        .controls-panel.hidden {
+            transform: translateY(calc(100% - 60px));
+        }
+
+        .panel-trigger {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%) translateY(-50%);
+            width: 60px;
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .panel-trigger:active {
+            background: rgba(255,255,255,0.6);
+            width: 80px;
+        }
+
+        .controls-content {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+
+        .controls-panel.hidden .controls-content {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 25px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            backdrop-filter: blur(10px);
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn-swap {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-capture {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            padding: 0;
+            justify-content: center;
+            font-size: 22px;
+        }
+
+        .btn-desktop {
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            color: white;
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* 截图预览 */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.95);
+            z-index: 200;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .snapshot-container {
+            position: relative;
+            max-width: 90%;
+            max-height: 80%;
+        }
+
+        .snapshot-img {
+            max-width: 100%;
+            max-height: 70vh;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        .snapshot-actions {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        /* 加载动画 */
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 60;
+            display: none;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #00cec9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- 全屏引导层 -->
+    <div class="fullscreen-guide" id="fullscreenGuide">
+        <div class="guide-icon">📷</div>
+        <div class="guide-title">悬浮摄像头</div>
+        <div class="guide-text">
+            视频优先显示在网页内悬浮窗<br>
+            可拖动改变位置，点击切换全屏<br>
+            支持桌面悬浮窗模式
+        </div>
+        <button class="guide-btn" id="guideBtn">点击进入全屏</button>
+    </div>
+
+    <!-- 背景占位 -->
+    <div class="bg-placeholder" id="bgPlaceholder">
+        <div class="bg-icon">📷</div>
+        <div class="bg-text">点击底部横条展开控制面板</div>
+    </div>
+
+    <!-- 主视频层（网页内悬浮窗隐藏时全屏显示） -->
+    <div class="main-view" id="mainView">
+        <video id="mainVideo" autoplay playsinline muted></video>
+    </div>
+
+    <!-- 网页内悬浮窗 -->
+    <div class="pip-view" id="pipContainer">
+        <div class="pip-label" id="pipLabel">后置</div>
+        <div class="pip-placeholder" id="pipPlaceholder">
+            <div class="pip-placeholder-icon">📷</div>
+            <div class="pip-placeholder-text">点击开启</div>
+        </div>
+        <video id="pipVideo" autoplay playsinline muted></video>
+        <div class="pip-hint">👆 拖动/点击</div>
+    </div>
+
+    <!-- 桌面悬浮窗 -->
+    <div class="desktop-pip" id="desktopPip">
+        <div class="desktop-header">
+            <span class="desktop-title">桌面悬浮窗</span>
+            <button class="desktop-close" id="desktopCloseBtn">×</button>
+        </div>
+        <video id="desktopVideo" autoplay playsinline muted></video>
+    </div>
+
+    <!-- 加载动画 -->
+    <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- 状态提示 -->
+    <div class="status" id="status">准备就绪</div>
+
+    <!-- 可隐藏控制面板 -->
+    <div class="controls-panel" id="controlsPanel">
+        <div class="panel-trigger" id="panelTrigger"></div>
+        
+        <div class="controls-content">
+            <div class="control-row">
+                <button class="btn-primary" id="startBtn">
+                    ▶️ 开启
+                </button>
+                <button class="btn-swap" id="switchBtn" disabled>
+                    🔄 切换
+                </button>
+                <button class="btn-capture" id="captureBtn" disabled>
+                    📸
+                </button>
+                <button class="btn-primary" id="pipToggleBtn" disabled>
+                    🙈 隐藏
+                </button>
+                <button class="btn-desktop" id="desktopBtn" disabled>
+                    🖥️ 桌面窗
+                </button>
+                <button class="btn-primary" id="stopBtn" disabled>
+                    ⏹️ 停止
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 截图预览 -->
+    <div class="overlay" id="overlay">
+        <div class="snapshot-container">
+            <img class="snapshot-img" id="snapshotImg" alt="截图">
+            <div class="snapshot-actions">
+                <button class="btn-primary" id="downloadBtn">⬇️ 保存</button>
+                <button class="btn-primary" id="closeOverlayBtn">❌ 关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // DOM 元素
+        const fullscreenGuide = document.getElementById('fullscreenGuide');
+        const guideBtn = document.getElementById('guideBtn');
+        const bgPlaceholder = document.getElementById('bgPlaceholder');
+        const mainView = document.getElementById('mainView');
+        const mainVideo = document.getElementById('mainVideo');
+        const pipContainer = document.getElementById('pipContainer');
+        const pipVideo = document.getElementById('pipVideo');
+        const pipPlaceholder = document.getElementById('pipPlaceholder');
+        const pipLabel = document.getElementById('pipLabel');
+        const desktopPip = document.getElementById('desktopPip');
+        const desktopVideo = document.getElementById('desktopVideo');
+        const desktopCloseBtn = document.getElementById('desktopCloseBtn');
+        const status = document.getElementById('status');
+        const controlsPanel = document.getElementById('controlsPanel');
+        const panelTrigger = document.getElementById('panelTrigger');
+        const loading = document.getElementById('loading');
+        const overlay = document.getElementById('overlay');
+        const snapshotImg = document.getElementById('snapshotImg');
+
+        // 按钮
+        const startBtn = document.getElementById('startBtn');
+        const switchBtn = document.getElementById('switchBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const pipToggleBtn = document.getElementById('pipToggleBtn');
+        const desktopBtn = document.getElementById('desktopBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const closeOverlayBtn = document.getElementById('closeOverlayBtn');
+
+        let stream = null;
+        let isRunning = false;
+        let isPipMode = true; // true: 网页内悬浮窗, false: 全屏
+        let isDesktopMode = false;
+        let currentFacing = 'environment';
+        let statusTimer = null;
+
+        // 初始化
+        window.onload = function() {
+            // 检查是否已全屏或PWA模式
+            if (window.matchMedia('(display-mode: standalone)').matches || 
+                window.navigator.standalone === true) {
+                fullscreenGuide.classList.add('hidden');
+            }
+
+            // 绑定事件
+            guideBtn.addEventListener('click', enterFullscreen);
+            fullscreenGuide.addEventListener('click', function(e) {
+                if (e.target === fullscreenGuide) {
+                    enterFullscreen();
+                }
+            });
+
+            panelTrigger.addEventListener('click', togglePanel);
+            
+            startBtn.addEventListener('click', startCamera);
+            switchBtn.addEventListener('click', switchCamera);
+            captureBtn.addEventListener('click', capture);
+            pipToggleBtn.addEventListener('click', togglePip);
+            desktopBtn.addEventListener('click', toggleDesktop);
+            stopBtn.addEventListener('click', stopCamera);
+            downloadBtn.addEventListener('click', downloadSnapshot);
+            closeOverlayBtn.addEventListener('click', closeSnapshot);
+            desktopCloseBtn.addEventListener('click', closeDesktop);
+
+            // 拖动事件 - 网页内悬浮窗
+            pipContainer.addEventListener('mousedown', startPipDrag);
+            pipContainer.addEventListener('touchstart', startPipDrag, { passive: false });
+            pipContainer.addEventListener('click', onPipClick);
+
+            // 拖动事件 - 桌面悬浮窗
+            desktopPip.addEventListener('mousedown', startDesktopDrag);
+            desktopPip.addEventListener('touchstart', startDesktopDrag, { passive: false });
+        };
+
+        // 进入全屏
+        function enterFullscreen() {
+            const elem = document.documentElement;
+            
+            try {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen().then(function() {
+                        fullscreenGuide.classList.add('hidden');
+                        showStatus('已进入全屏模式', 'success');
+                    }).catch(function(err) {
+                        console.log('全屏失败:', err);
+                        fullscreenGuide.classList.add('hidden');
+                        showStatus('请使用浏览器全屏功能', 'warning');
+                    });
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen();
+                    fullscreenGuide.classList.add('hidden');
+                    showStatus('已进入全屏模式', 'success');
+                } else if (elem.msRequestFullscreen) {
+                    elem.msRequestFullscreen();
+                    fullscreenGuide.classList.add('hidden');
+                    showStatus('已进入全屏模式', 'success');
+                } else {
+                    fullscreenGuide.classList.add('hidden');
+                    showStatus('您的浏览器不支持全屏API', 'warning');
+                }
+            } catch (e) {
+                console.error('全屏错误:', e);
+                fullscreenGuide.classList.add('hidden');
+            }
+        }
+
+        // 显示状态
+        function showStatus(message, type) {
+            clearTimeout(statusTimer);
+            status.textContent = message;
+            status.className = 'status ' + (type || '');
+            
+            statusTimer = setTimeout(function() {
+                status.className = 'status';
+            }, 2000);
+        }
+
+        // 切换控制面板
+        function togglePanel() {
+            controlsPanel.classList.toggle('hidden');
+        }
+
+        // 拖动网页内悬浮窗
+        let isPipDragging = false;
+        let pipStartX, pipStartY, pipInitialX, pipInitialY;
+
+        function startPipDrag(e) {
+            if (!isRunning || isDesktopMode) return;
+            
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            pipStartX = clientX;
+            pipStartY = clientY;
+            
+            const rect = pipContainer.getBoundingClientRect();
+            pipInitialX = rect.left;
+            pipInitialY = rect.top;
+            
+            isPipDragging = false;
+            
+            document.addEventListener('mousemove', onPipDrag);
+            document.addEventListener('touchmove', onPipDrag, { passive: false });
+            document.addEventListener('mouseup', endPipDrag);
+            document.addEventListener('touchend', endPipDrag);
+        }
+
+        function onPipDrag(e) {
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            const dx = Math.abs(clientX - pipStartX);
+            const dy = Math.abs(clientY - pipStartY);
+            
+            if (dx > 5 || dy > 5) {
+                isPipDragging = true;
+                pipContainer.classList.add('dragging');
+            }
+            
+            if (isPipDragging) {
+                e.preventDefault();
+                const x = pipInitialX + (clientX - pipStartX);
+                const y = pipInitialY + (clientY - pipStartY);
+                
+                const maxX = window.innerWidth - pipContainer.offsetWidth;
+                const maxY = window.innerHeight - pipContainer.offsetHeight;
+                
+                pipContainer.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+                pipContainer.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+                pipContainer.style.right = 'auto';
+            }
+        }
+
+        function endPipDrag() {
+            pipContainer.classList.remove('dragging');
+            document.removeEventListener('mousemove', onPipDrag);
+            document.removeEventListener('touchmove', onPipDrag);
+            document.removeEventListener('mouseup', endPipDrag);
+            document.removeEventListener('touchend', endPipDrag);
+            
+            setTimeout(function() {
+                isPipDragging = false;
+            }, 10);
+        }
+
+        // 点击网页内悬浮窗
+        function onPipClick(e) {
+            if (isPipDragging || !isRunning || isDesktopMode) return;
+            togglePip();
+        }
+
+        // 拖动桌面悬浮窗
+        let isDesktopDragging = false;
+        let desktopStartX, desktopStartY, desktopInitialX, desktopInitialY;
+
+        function startDesktopDrag(e) {
+            if (!isRunning || !isDesktopMode) return;
+            if (e.target === desktopCloseBtn) return;
+            
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            desktopStartX = clientX;
+            desktopStartY = clientY;
+            
+            const rect = desktopPip.getBoundingClientRect();
+            desktopInitialX = rect.left;
+            desktopInitialY = rect.top;
+            
+            isDesktopDragging = true;
+            desktopPip.classList.add('dragging');
+            
+            document.addEventListener('mousemove', onDesktopDrag);
+            document.addEventListener('touchmove', onDesktopDrag, { passive: false });
+            document.addEventListener('mouseup', endDesktopDrag);
+            document.addEventListener('touchend', endDesktopDrag);
+            
+            e.preventDefault();
+        }
+
+        function onDesktopDrag(e) {
+            if (!isDesktopDragging) return;
+            
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            
+            const x = desktopInitialX + (clientX - desktopStartX);
+            const y = desktopInitialY + (clientY - desktopStartY);
+            
+            const maxX = window.innerWidth - desktopPip.offsetWidth;
+            const maxY = window.innerHeight - desktopPip.offsetHeight;
+            
+            desktopPip.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+            desktopPip.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+            desktopPip.style.transform = 'none';
+            
+            e.preventDefault();
+        }
+
+        function endDesktopDrag() {
+            isDesktopDragging = false;
+            desktopPip.classList.remove('dragging');
+            document.removeEventListener('mousemove', onDesktopDrag);
+            document.removeEventListener('touchmove', onDesktopDrag);
+            document.removeEventListener('mouseup', endDesktopDrag);
+            document.removeEventListener('touchend', endDesktopDrag);
+        }
+
+        // 启动摄像头
+        async function startCamera() {
+            startBtn.disabled = true;
+            loading.style.display = 'block';
+            showStatus('正在启动摄像头...');
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: { exact: currentFacing },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    },
+                    audio: false
+                });
+
+                setupVideo(stream);
+
+            } catch (err) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: currentFacing,
+                            width: { ideal: 1920 }
+                        },
+                        audio: false
+                    });
+
+                    setupVideo(stream);
+
+                } catch (err2) {
+                    loading.style.display = 'none';
+                    showStatus('启动失败: ' + err2.message, 'error');
+                    startBtn.disabled = false;
+                }
+            }
+        }
+
+        function setupVideo(mediaStream) {
+            // 同时设置三个视频源
+            pipVideo.srcObject = mediaStream;
+            mainVideo.srcObject = mediaStream;
+            desktopVideo.srcObject = mediaStream;
+
+            pipVideo.onloadedmetadata = function() {
+                pipPlaceholder.style.display = 'none';
+                pipVideo.style.display = 'block';
+                bgPlaceholder.style.display = 'none';
+
+                isRunning = true;
+                loading.style.display = 'none';
+
+                const isFront = currentFacing === 'user';
+                pipVideo.style.transform = isFront ? 'scaleX(-1)' : 'scaleX(1)';
+                mainVideo.style.transform = isFront ? 'scaleX(-1)' : 'scaleX(1)';
+                desktopVideo.style.transform = isFront ? 'scaleX(-1)' : 'scaleX(1)';
+                pipLabel.textContent = isFront ? '前置' : '后置';
+
+                switchBtn.disabled = false;
+                captureBtn.disabled = false;
+                pipToggleBtn.disabled = false;
+                desktopBtn.disabled = false;
+                stopBtn.disabled = false;
+
+                showStatus(isFront ? '前置摄像头已启动' : '后置摄像头已启动', 'success');
+                
+                setTimeout(function() {
+                    controlsPanel.classList.add('hidden');
+                }, 1500);
+            };
+        }
+
+        // 切换前后摄像头
+        async function switchCamera() {
+            if (!isRunning) return;
+
+            loading.style.display = 'block';
+            showStatus('正在切换摄像头...');
+
+            currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+
+            try {
+                if (stream) {
+                    stream.getTracks().forEach(function(t) { t.stop(); });
+                }
+
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: { exact: currentFacing },
+                        width: { ideal: 1920 }
+                    },
+                    audio: false
+                });
+
+                pipVideo.srcObject = stream;
+                mainVideo.srcObject = stream;
+                desktopVideo.srcObject = stream;
+
+                const isFront = currentFacing === 'user';
+                pipVideo.style.transform = isFront ? 'scaleX(-1)' : 'scaleX(1)';
+                mainVideo.style.transform = isFront ? 'scaleX(-1)' : 'scaleX(1)';
+                desktopVideo.style.transform = isFront ? 'scaleX(-1)' : 'scaleX(1)';
+                pipLabel.textContent = isFront ? '前置' : '后置';
+
+                loading.style.display = 'none';
+                showStatus(isFront ? '已切换到前置' : '已切换到后置', 'success');
+
+            } catch (err) {
+                currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+                loading.style.display = 'none';
+                showStatus('切换失败，请重试', 'error');
+            }
+        }
+
+        // 切换网页内悬浮窗/全屏
+        function togglePip() {
+            if (!isRunning || isDesktopMode) return;
+            
+            isPipMode = !isPipMode;
+            
+            if (isPipMode) {
+                mainView.classList.remove('active');
+                pipContainer.classList.remove('hidden');
+                pipToggleBtn.textContent = '🙈 隐藏';
+                showStatus('悬浮窗模式');
+            } else {
+                pipContainer.classList.add('hidden');
+                mainView.classList.add('active');
+                pipToggleBtn.textContent = '👁️ 显示';
+                showStatus('全屏模式');
+            }
+        }
+
+        // 切换桌面悬浮窗
+        function toggleDesktop() {
+            if (!isRunning) return;
+            
+            isDesktopMode = !isDesktopMode;
+            
+            if (isDesktopMode) {
+                // 进入桌面悬浮窗模式
+                pipContainer.classList.add('hidden');
+                mainView.classList.remove('active');
+                desktopPip.classList.add('active');
+                controlsPanel.classList.add('hidden');
+                
+                // 重置桌面窗位置
+                desktopPip.style.left = '50%';
+                desktopPip.style.top = '50%';
+                desktopPip.style.transform = 'translate(-50%, -50%)';
+                
+                desktopBtn.textContent = '📱 网页窗';
+                showStatus('桌面悬浮窗模式');
+            } else {
+                // 返回网页内悬浮窗模式
+                closeDesktop();
+            }
+        }
+
+        // 关闭桌面悬浮窗
+        function closeDesktop() {
+            isDesktopMode = false;
+            desktopPip.classList.remove('active');
+            pipContainer.classList.remove('hidden');
+            desktopBtn.textContent = '🖥️ 桌面窗';
+            showStatus('返回网页悬浮窗');
+        }
+
+        // 拍照
+        function capture() {
+            if (!isRunning) return;
+
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            let activeVideo;
+            if (isDesktopMode) {
+                activeVideo = desktopVideo;
+            } else if (isPipMode) {
+                activeVideo = pipVideo;
+            } else {
+                activeVideo = mainVideo;
+            }
+            
+            canvas.width = activeVideo.videoWidth;
+            canvas.height = activeVideo.videoHeight;
+            
+            ctx.save();
+            if (activeVideo.style.transform === 'scaleX(-1)') {
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+            }
+            ctx.drawImage(activeVideo, 0, 0);
+            ctx.restore();
+            
+            snapshotImg.src = canvas.toDataURL('image/png');
+            overlay.style.display = 'flex';
+        }
+
+        function downloadSnapshot() {
+            const canvas = document.getElementById('canvas');
+            const link = document.createElement('a');
+            link.download = 'Photo_' + Date.now() + '.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            showStatus('照片已保存', 'success');
+        }
+
+        function closeSnapshot() {
+            overlay.style.display = 'none';
+        }
+
+        // 停止摄像头
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(function(t) { t.stop(); });
+                stream = null;
+            }
+
+            pipVideo.style.display = 'none';
+            pipPlaceholder.style.display = 'flex';
+            pipLabel.textContent = '后置';
+            
+            mainView.classList.remove('active');
+            pipContainer.classList.remove('hidden');
+            desktopPip.classList.remove('active');
+            bgPlaceholder.style.display = 'flex';
+            
+            // 重置位置和状态
+            pipContainer.style.left = 'auto';
+            pipContainer.style.top = '80px';
+            pipContainer.style.right = '20px';
+            pipContainer.style.bottom = 'auto';
+            
+            isRunning = false;
+            isPipMode = true;
+            isDesktopMode = false;
+            currentFacing = 'environment';
+
+            startBtn.disabled = false;
+            switchBtn.disabled = true;
+            captureBtn.disabled = true;
+            pipToggleBtn.disabled = true;
+            desktopBtn.disabled = true;
+            stopBtn.disabled = true;
+            pipToggleBtn.textContent = '🙈 隐藏';
+            desktopBtn.textContent = '🖥️ 桌面窗';
+
+            showStatus('摄像头已停止');
+        }
+
+        // 清理
+        window.addEventListener('beforeunload', stopCamera);
+    </script>
+</body>
+</html>
